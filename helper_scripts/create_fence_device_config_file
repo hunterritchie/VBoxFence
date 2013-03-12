@@ -1,0 +1,19 @@
+#!/usr/bin/python
+
+#import os
+#import sys
+#import hashlib
+#import argparse
+import json
+
+
+def main():
+  config_buf = json.dumps({ 'address':'127.0.0.1', 'port':6789, 'servercert':'/etc/vbox/server.crt', 'serverkey':'/etc/vbox/server.key', 'certreq':'Required', 'umask':0, 'working_dir':'/', 'max_fd':1024 }, sort_keys=True, indent=2)
+
+  config_file = open('./config', 'w')
+  config_file.write(config_buf)
+
+
+if __name__ == "__main__":
+  main()
+

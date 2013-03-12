@@ -1,0 +1,70 @@
+
+---------------------
+vbox fence device
+---------------------
+
+virtualbox_fence_device   (chmod 750, doesn't matter who owns it)
+
+usage: virtualbox_fence_device [-h] [--address ADDRESS] [--port PORT]
+                               [--servercert SERVERCERT]
+                               [--serverkey SERVERKEY] [--certreq CERTREQ]
+                               [--umask UMASK] [--working_dir WORKING_DIR]
+                               [--max_fd MAX_FD] [--debug]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --address ADDRESS, -a ADDRESS
+                        set IP or hostname for TCP server, default to
+                        localhost
+  --port PORT, -p PORT  set port for TCP server, default to 6789
+  --servercert SERVERCERT, -c SERVERCERT
+                        /path/to/certfile, default to '/etc/vbox/server.crt'
+  --serverkey SERVERKEY, -k SERVERKEY
+                        /path/to/keyfile, default to '/etc/vbox/server.key'
+  --certreq CERTREQ, -r CERTREQ
+                        (N)one|(O)ptional|(R)equired, default to 'N'
+  --umask UMASK, -u UMASK
+                        override umask=0
+  --working_dir WORKING_DIR, -w WORKING_DIR
+                        default dir is '/'
+  --max_fd MAX_FD, -f MAX_FD
+                        default # of fd if not set is 1024 (see getrlimit)
+  --debug, -d           do not daemonize (run in foreground)
+
+
+***
+For now, you can run the server as your user on the vbox server, from the commandline
+./virtualbox_fence_device -a <VBox Host> -d -r N
+
+-a is your host IP
+-d is debug mode
+-r says don't require certs
+
+Put server.key and server.crt in /tmp (or in lieu of that, use the -c & -k flags to indicate the location)
+
+
+
+---------------------
+vbox fence agent
+---------------------
+fence_vbox
+
+This agent needs to live in /usr/sbin on the guests.
+Put server.key and server.crt in /tmp on the guests
+
+
+---------------------
+vbox fence test
+---------------------
+test_virtualbox_fence_daemon
+
+use this to make sure your daemon is working on your host, 
+requires editing for your env (and to turn on tests)
+
+
+---------------------
+python 2.6 (cygwin, rhel6, etc)
+---------------------
+install argparse
+
+

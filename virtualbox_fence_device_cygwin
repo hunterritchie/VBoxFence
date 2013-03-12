@@ -1,0 +1,461 @@
+#!/usr/bin/python
+
+
+# Note: run this as a user in group vboxusers (doesn't need to be run as root)
+#
+# using Lib/SocketServer.py to get a threaded tcp server
+# using fork twice recipe for daemonization to divorce from controlling terminal
+# signal handlers used for clean shutdown
+# VBoxManage used for guest control
+#
+
+import argparse
+import os
+import json
+import logging
+import re
+import resource
+import signal
+import socket
+import SocketServer
+import ssl
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+def vbox_vmrunning(vbox_name):
+  try:
+    out,err = subprocess.Popen(["VBoxManage", "list", "runningvms"], stdout=subprocess.PIPE).communicate()
+    logging.debug("list of running vms:\n%s"%(out))
+    res = re.search(vbox_name, out)
+  except Exception, e:
+    err = "%s\n" % str(e)
+    logging.error(err)
+
+  if res:
+    return True
+  else:
+    return False
+
+##
+# fenced return values expects:
+#   0 on success
+#   1 on failure
+#
+# VBoxManage controlvm <name> acpipowerbutton
+# VBoxManage list runningvms  (grep the output for <name>)
+#
+#
+def vbox_off(vbox_name, options):
+  # wait for vm to go offline before reporting success (keep sending shutdown til it takes)
+  logging.error("vbox_off")
+  ret_code = 0
+  while vbox_vmrunning(vbox_name):
+    try:
+      ret_code = subprocess.call(["VBoxManage", "controlvm", vbox_name, "acpipowerbutton"])
+    except Exception, e:
+      err = "%s\n" % str(e)
+      logging.error(err)
+      ret_code = 1
+  return ret_code
+
+
+##
+# fenced return values expects:
+#   0 on success
+#   1 on failure
+#
+# VBoxManage startvm <name> --type headless
+# VBoxManage list runningvms  (grep the output for <name>)
+#
+#
+def vbox_on(vbox_name, options):
+  # wait for vm to be online before reporting success
+  logging.error("vbox_on")
+  ret_code = 0
+  while vbox_vmrunning(vbox_name) == False:
+    try:
+      ret_code = subprocess.call(["VBoxManage", "startvm", vbox_name, "--type", "headless"])
+    except Exception, e:
+      err = "%s\n" % str(e)
+      logging.error(err)
+      ret_code = 1
+  return ret_code
+
+
+##
+# vbox_off; vbox_on
+#
+def vbox_reboot(vbox_name):
+  logging.error("vbox_reboot")
+  options = []
+  ret_code = vbox_off(vbox_name, options)
+  if ret_code != 0:
+    return ret_code
+  ret_code = vbox_on(vbox_name, options)
+  return ret_code
+
+
+##
+# fenced return values expects:
+#   0 fence device is reachable and working
+#   1 fence device could not be reached
+#
+#   in this case; status, monitor, and list are all equivalent
+# VBoxManage list vms
+#   -- check for any output
+#
+def vbox_list():
+  try:
+    ret_code = subprocess.call(["VBoxManage", "list", "vms"])
+  except Exception, e:
+    err = "%s\n" % str(e)
+    logging.error(err)
+  return ret_code
+
+##
+# fenced wants to check if the fence device is reachable
+#   0 reachable
+#   1 unreachable
+#
+#   in this case; status, monitor, and list are all equivalent
+#   vbox_list
+#
+def vbox_status():
+  ret_code = vbox_list()
+  return ret_code
+
+##
+# fenced return values expects:
+#   0,1,2  however, only 0,1 apply here
+#   0 means VBoxManage list vms returned *something*
+#   1 means the command failed for any reason
+#
+#   in this case; status, monitor, and list are all equivalent
+#   vbox_list
+#
+def vbox_monitor():
+  ret_code = vbox_list()
+  return ret_code
+
+
+## TCP SERVER REQUEST HANDLER
+class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
+  def handle(self):
+    logging.debug("request handler called")
+    if self.authenticate():
+    
+      data = self.receive()
+      
+      cur_thread = threading.current_thread()
+      request = json.loads(data)
+
+      success = { "cmd" : request["cmd"], "action" : "success" }
+      failure = { "cmd" : request["cmd"], "action" : "failure" }
+
+      # status
+      if request["cmd"] == "status":
+        if vbox_status() == 0:
+          response = success
+        else:
+          response = failure
+        self.sendmsg(json.dumps(response))
+
+      #monitor
+      elif request["cmd"] == "monitor":
+        if vbox_monitor() == 0:
+          response = success
+        else:
+          response = failure
+        self.sendmsg(json.dumps(response))
+
+      #list
+      elif request["cmd"] == "list":
+        if vbox_list() == 0:
+          response = success
+        else:
+          response = failure
+        self.sendmsg(json.dumps(response))
+
+      #reboot
+      elif request["cmd"] == "reboot":
+        name = request["name"]
+        if "options" in request:
+          options = request["options"]
+        else:
+          options = []
+        if vbox_reboot(name) == 0:
+          response = success
+        else:
+          response = failure
+        self.sendmsg(json.dumps(response))
+
+      #on
+      elif request["cmd"] == "on":
+        name = request["name"]
+        if "options" in request:
+          options = request["options"]
+        else:
+          options = []
+        if vbox_on(name, options) == 0:
+          response = success
+        else:
+          response = failure
+        self.sendmsg(json.dumps(response))
+
+      #off
+      elif request["cmd"] == "off":
+        name = request["name"]
+        if "options" in request:
+          options = request["options"]
+        else:
+          options = []
+        if vbox_off(name, options) == 0:
+          response = success
+        else:
+          response = failure
+        self.sendmsg(json.dumps(response))
+
+      #invalid
+      else:
+        response = { "cmd" : request["cmd"], "action" : "invalid request" }
+        self.sendmsg(json.dumps(response))
+
+  def authenticate(self):
+    return True
+
+  def receive(self):
+    # read length
+    logging.debug("receive called")
+    buflen = struct.calcsize("!L")
+    print "expecting data len of size %d\n" % (buflen)
+
+    #buflen = 4
+    buf = ""
+    while (len(buf) < buflen):
+      logging.debug("read data len")
+      buf = self.request.recv(buflen - len(buf))
+    print "buf len from read is %d\n" % (len(buf))
+    buflen = socket.ntohl(struct.unpack("!L", buf)[0])
+    logging.debug("receiver buffer length = %d" % (buflen))
+
+    # read data
+    buf = ""
+    while (len(buf) < buflen):
+      logging.debug("read data")
+      buf = self.request.recv(buflen - len(buf))
+      logging.debug("receiver buffer = %s" % (buf))
+    return buf
+
+  def sendmsg(self, msg):
+    # send length
+    buflen = socket.htonl(len(msg))
+    buflen = struct.pack("!L", buflen)
+    self.request.sendall(buflen)
+    # send message
+    self.request.sendall(msg)
+
+
+## TCP SERVER
+RESTART = False
+RUN = True
+
+
+def startServer(address, port, servercert, serverkey, certreq):
+  global RUN
+
+  logging.debug("start server")
+  server = SocketServer.ThreadingTCPServer((address, port), ThreadedTCPRequestHandler)
+  # TODO: get ssl.CERT_REQUIRED working
+  #server.socket = ssl.wrap_socket(server.socket, server_side=True, certfile=servercert, keyfile=serverkey, cert_reqs=certreq, do_handshake_on_connect=True)
+  server.socket = ssl.wrap_socket(server.socket, server_side=True, certfile=servercert, keyfile=serverkey, cert_reqs=ssl.CERT_NONE, do_handshake_on_connect=True)
+  logging.debug("ssl server started")
+
+  server_thread = threading.Thread(target=server.serve_forever)
+  server_thread.daemon = True
+  server_thread.start()
+  logging.debug("server thread started")
+
+  while RUN == True:
+    time.sleep(0.1)
+  server.shutdown()
+
+
+## SIGNAL HANDLERS FOR SERVER CONTROL
+def sigtermHandler(signum, frame):
+  global RUN
+  RUN = False
+
+def sigintHandler(signum, frame):
+  sigtermHandler(signum, frame)
+
+def sighupHandler(signum, frame):
+  global RESTART
+  RESTART = True
+  global RUN
+  RUN = False
+
+# RESTART AT EXIT (SIGHUP)
+def restart(argv):
+  path = os.cwd()
+  path += "/"
+  path += argv[0]
+  os.execv(path, argv)
+
+
+
+## DAEMONIZATION
+# daemon vars
+UMASK = 0
+WORKING_DIR = "/"
+MAXFD = 1024
+
+# redirect I/O
+if (hasattr(os, "devnull")):
+  REDIRECT_TO = os.devnull
+else:
+  REDIRECT_TO = "/dev/null"
+
+# fork once so child is divorced from controlling terminal
+# call setsid to make child session and process group leader
+# fork a second time to orphan the process so it can't get a controlling terminal later
+# handle stdin, stdout, stderr fd's
+# setup up SIGINT, SIGTERM and SIGHUP handlers
+def daemonize():
+  try:
+    pid = os.fork()
+  except OSError, e:
+    raise Exception, "%s [%d]" % (e.strerror, e.errno)
+
+  if (pid == 0):
+    os.setsid()
+    try:
+      pid = os.fork()
+    except OSError, e:
+      raise Exception, "%s [%d]" % (e.strerror, e.errno)
+
+    if (pid == 0):
+      os.chdir(WORKING_DIR)
+      os.umask(UMASK)
+    else:
+      os._exit(0)
+  else:
+    os._exit(0)
+
+  maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+  if (maxfd == resource.RLIM_INFINITY):
+    maxfd = MAXFD
+
+  for fd in range(0, maxfd):
+    try:
+      os.close(fd)
+    except OSError:
+      pass
+
+  os.open(REDIRECT_TO, os.O_RDWR)
+  os.dup2(0,1)
+  os.dup2(0,2)
+
+  signal.signal(signal.SIGINT, sigintHandler)
+  signal.signal(signal.SIGTERM, sigtermHandler)
+  signal.signal(signal.SIGHUP, sighupHandler)
+
+  return 0
+
+## MAIN
+def main():
+  logging.basicConfig(format='%(levelname)s : %(message)s', level=logging.DEBUG)
+  logging.info("info")
+  logging.warning("warn")
+  logging.debug("debug")
+  logging.error("error")
+  global RUN
+  global UMASK
+  global WORKING_DIR
+  global MAXFD
+
+  config = { 
+    'config_file' : "/etc/vbox/config",
+    'address' : "localhost",
+    'port' : 6789,
+    'auth_file' : "/etc/vbox_fence_auth",
+    'servercert' : "/etc/vbox/server.crt",
+    'serverkey' : "/etc/vbox/server.key",
+    'certreq' : 'None'
+  }
+
+  # parse options
+  parser = argparse.ArgumentParser(description="")
+
+  parser.add_argument('--config', '-c', help="set IP or hostname for TCP server, default to localhost")
+  parser.add_argument('--address', '-a', help="set IP or hostname for TCP server, default to localhost")
+  parser.add_argument('--port', '-p', help="set port for TCP server, default to 6789")
+  parser.add_argument('--servercert', '-C', help="/path/to/certfile, default to '/etc/vbox/server.crt'")
+  parser.add_argument('--serverkey', '-K', help="/path/to/keyfile, default to '/etc/vbox/server.key'")
+  parser.add_argument('--certreq', '-R', help="(N)one|(O)ptional|(R)equired, default to 'N'")
+  parser.add_argument('--umask', '-u', help="override umask=0")
+  parser.add_argument('--working_dir', '-w', help="default dir is '/'")
+  parser.add_argument('--max_fd', '-f', help="default # of fd if not set is 1024 (see getrlimit)")
+  parser.add_argument('--debug', '-d', action="store_true", help="do not daemonize (run in foreground)")
+  args = parser.parse_args()
+
+  # get config options from file, then overwrite with commandline options
+  if args.config != None:
+    config['config_file'] = args.config
+
+  FILE = open(config['config_file'], 'r')
+  config_file_options = json.loads(FILE.read())
+  config.update(config_file_options)
+
+  if args.address != None:
+    config['address'] = args.address 
+  if args.port != None:
+    config['port'] = args.port 
+
+# TODO: permissions check for cert and key
+  if args.servercert != None:
+    config['servercert'] = args.servercert 
+  if args.serverkey != None:
+    config['serverkey'] = args.serverkey 
+
+  if args.certreq != None:
+    if args.certreq == 'N' or args.certreq == "None":
+      config['certreq'] = ssl.CERT_NONE
+    if args.certreq == 'O' or args.certreq == "Optional":
+      config['certreq'] = ssl.CERT_OPTIONAL
+    if args.certreq == 'R' or args.certreq == "Required":
+      config['certreq'] = ssl.CERT_OPTIONAL
+
+
+  if args.umask != None:
+    config['UMASK'] = args.umask 
+  if args.working_dir != None:
+    config['WORKING_DIR'] = args.working_dir 
+  if args.max_fd != None:
+    config['MAXFD'] = args.max_fd 
+
+  try:
+    ret_code = 1
+    if False == args.debug:
+      ret_code = daemonize()
+
+    startServer(config['address'], config['port'], config['servercert'], config['serverkey'], config['certreq'])
+
+    if RESTART == True:
+      restart(sys.argv) 
+
+    sys.exit(ret_code)
+
+  except Exception, e:
+    RUN = False
+    err = "%s\n" % str(e)
+    print err
+    logging.error(err)
+    sys.exit(ret_code)
+
+
+if __name__ == "__main__":
+  main()
+

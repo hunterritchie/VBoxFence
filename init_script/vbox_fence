@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# chkconfig: - 87 13
+# description: VirtualBox Fence Agent
+# processname: virtualbox_fence_agent
+
+PATH=/usr/bin/:$PATH
+export PATH
+
+prog=virtualbox_fence_agent
+
+lockfile=/var/lock/subsys/$prog
+pidfile=/var/run/${prog}.pid
+logfile=/var/log/${prog}
+
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Source any shell variables to be passed in to this script 
+if [ -f /etc/sysconfig/$prog ] ; then
+    . /etc/sysconfig/$prog
+fi
+
+RETVAL=0
+
+# ensure binary is present and executable
+if [[ !(-x /usr/bin/$prog) ]] ; then
+    echo "/usr/bin/$prog not found or not executable" 
+    exit 5
+fi
+
+
+start() {
+        echo -n $"Starting ${prog}: "
+	daemon --pidfile $pidfile /usr/bin/$prog -p $pidfile
+
+	RETVAL=$?
+	if [ $RETVAL = 0 ]; then
+	    echo "Progrm started . . . "
+    else
+        echo "Program failed to start."
+	fi
+	return $RETVAL
+}
+
+stop() {
+        echo -n $"Stopping ${prog}: "
+	killproc -p ${pidfile} $prog
+	RETVAL=$?
+	echo
+	[ $RETVAL = 0 ] && rm -f ${pidfile}
+}
+
+restart() {
+	stop
+	start
+}
+
+# See how we were called.
+case "$1" in
+  start|stop|restart)
+	$1
+	;;
+  status)
+	status $prog
+	RETVAL=$?
+	;;
+  force-reload)
+	restart
+	;;
+  *)
+	echo 1>&2 $"Usage: $0 {start|stop|restart}"
+	exit 2
+esac
+
+exit $RETVAL

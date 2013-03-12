@@ -1,0 +1,10 @@
+{
+  "address": "127.0.0.1", 
+  "certreq": "None", 
+  "max_fd": 1024, 
+  "port": 6789, 
+  "servercert": "/home/hunter/projectbox/virtualbox_fencing_tools/server.crt", 
+  "serverkey": "/home/hunter/projectbox/virtualbox_fencing_tools/server.key", 
+  "umask": 0, 
+  "working_dir": "/home/hunter"
+}

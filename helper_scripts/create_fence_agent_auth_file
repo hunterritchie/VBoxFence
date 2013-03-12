@@ -1,0 +1,39 @@
+#!/usr/bin/python
+
+import os
+import sys
+import hashlib
+import argparse
+
+def hash_password(password):
+  return hashlib.sha256(str(password)).hexdigest()
+
+def save_auth_file(path, username, password):
+  try:
+    auth_file = open(path, "w")
+    auth_file.write("%s,%s\n" % (username, password))
+    auth_file.close()
+  except IOError, e:
+    print "%s [%d]\n" % (e.strerror, e.errno)
+
+
+def main():
+  parser = argparse.ArgumentParser(description="Need username and password")
+  parser.add_argument('--username', '-u', required=True, help="username to use for logging into virtualbox fence agent")
+  parser.add_argument('--password', '-p', required=True, help="password to use for logging into virtualbox fence agent")
+  parser.add_argument('--save_dir', '-d', help="directory to save file in, default is current working dir")
+  args = parser.parse_args() 
+
+  if args.save_dir == None:
+    save_dir = os.getcwd()
+  save_dir += "/vbox_fence_auth"
+
+  hashed_password = hash_password(args.password) 
+  save_auth_file(save_dir, args.username, hashed_password)
+
+  print "authentication file created\n"
+
+
+if __name__ == "__main__":
+  main()
+

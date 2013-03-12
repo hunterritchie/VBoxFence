@@ -1,0 +1,171 @@
+#!/usr/bin/python
+
+## fencing agent for virtualbox_fence_agent
+import json
+import logging
+import socket
+import ssl
+import struct
+import sys
+
+sys.path.append("/usr/share/fence")
+from fencing import *
+
+
+def client_connect(address, port):
+  try:
+    # port needs to be an interger
+    ip_port = int(port)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    servercert="/tmp/server.crt"
+    serverkey="/tmp/server.key"
+    ssl_sock = ssl.wrap_socket(sock, do_handshake_on_connect=True, certfile=servercert, keyfile=serverkey, cert_reqs=ssl.CERT_NONE)
+    ssl_sock.connect((address, ip_port))
+  except Exception, e:
+    error = "client_connect: %s\n" % str(e)
+    logging.info(error)
+  return ssl_sock
+
+
+def receive(sock):
+  # read length
+  buflen = struct.calcsize("L")
+  buf = ""
+  try:
+    while (len(buf) < buflen):
+      buf = sock.recv(buflen - len(buf))
+  except IOError, e:
+    error = "receive: IOERROR: %s\n" % str(e)
+  except Exception, e:
+    error = "receive: %s\n" % str(e)
+    logging.info(error)
+  buflen = socket.ntohl(struct.unpack("L", buf)[0])
+
+  # read data
+  buf = ""
+  while (len(buf) < buflen):
+    buf = sock.recv(buflen - len(buf))
+  return buf
+
+
+def sendmsg(sock, msg):
+  # send length
+  buflen = socket.htonl(len(msg))
+  buflen = struct.pack("L", buflen)
+  try:
+    sock.sendall(buflen)
+  except Exception, e:
+    error = "sendmsg: %s\n" % str(e)
+    logging.info(error)
+  # send message
+  try:
+    sock.sendall(msg)
+  except Exception, e:
+    error = "sendmsg: %s\n" % str(e)
+    logging.info(error)
+
+
+def vbox_fence_action(options):
+  sock = client_connect(options['-a'], options['-u'])
+  result = 0
+  ## calls vbox_list on device
+  # success -> 0 is reachable
+  # failure => 1 is unreachable
+  if (options['-o'] == 'list'):
+    message = json.dumps({"cmd":"list"})
+    sendmsg(sock, message)
+    buf = receive(sock)
+    response = json.loads(buf)
+    logging.info("%s %s\n" % (response["cmd"], response["action"]))
+    result = response["action"]
+    if "failure" == response["action"]:
+      result = 1 
+  ## calls vbox_status on device
+  # success -> 0 is reachable
+  # failure => 1 is unreachable
+  elif (options['-o'] == 'status'):
+    message = json.dumps({"cmd":"status"})
+    sendmsg(sock, message)
+    buf = receive(sock)
+    response = json.loads(buf)
+    logging.info("%s %s\n" % (response["cmd"], response["action"]))
+    if "failure" == response["action"]:
+      result = 1 
+  ## calls vbox_monitor on device
+  # success -> 0 is reachable
+  # failure => 1 is unreachable
+  elif (options['-o'] == 'monitor'):
+    message = json.dumps({"cmd":"monitor"})
+    sendmsg(sock, message)
+    buf = receive(sock)
+    response = json.loads(buf)
+    logging.info("%s %s\n" % (response["cmd"], response["action"]))
+    if "failure" == response["action"]:
+      result = 1 
+  ## calls vbox_off on device
+  # success -> 0 is reachable
+  # failure => 1 is unreachable
+  elif (options['-o'] == 'off'):
+    message = json.dumps({"cmd":"off", "name":options['-U']})
+    sendmsg(sock, message)
+    buf = receive(sock)
+    response = json.loads(buf)
+    logging.info("%s %s\n" % (response["cmd"], response["action"]))
+    if "failure" == response["action"]:
+      result = 1 
+  ## calls vbox_on on device
+  # success -> 0 is reachable
+  # failure => 1 is unreachable
+  elif (options['-o'] == 'on'):
+    message = json.dumps({"cmd":"on", "name":options['-U']})
+    sendmsg(sock, message)
+    buf = receive(sock)
+    response = json.loads(buf)
+    logging.info("%s %s\n" % (response["cmd"], response["action"]))
+    if "failure" == response["action"]:
+      result = 1 
+  ## calls vbox_reboot on device
+  # success -> 0 is reachable
+  # failure => 1 is unreachable
+  elif (options['-o'] == 'reboot'):
+    message = json.dumps({"cmd":"reboot", "name":options['-U']})
+    sendmsg(sock, message)
+    buf = receive(sock)
+    response = json.loads(buf)
+    logging.info("%s %s\n" % (response["cmd"], response["action"]))
+    if "failure" == response["action"]:
+      result = 1 
+  return result
+
+
+def main():
+  # create debug log
+  logging.basicConfig(filename='/tmp/fence_vbox.log', level=logging.INFO)
+  device_opt = [ "help", "version", "agent", "ipaddr", "ipport", "login", "passwd", "action", "uuid" ] 
+
+  atexit.register(atexit_handler)
+
+  ## commandline args or stdin using fence library
+  options = check_input(device_opt, process_input(device_opt))
+
+  docs = { }
+  docs["shortdesc"] = "Fence agent for VirtualBox"
+  docs["longdesc"] = "power fencing using virtualbox_fence_agent."
+  docs["vendorurl"] = "http://www.virtualbox.org"
+  show_docs(options, docs)
+
+  logging.info(options)
+
+  try:
+    result = vbox_fence_action(options)
+  finally:
+    try:
+      sock.close()
+    except:
+      pass
+
+  sys.exit(result)
+
+if __name__ == "__main__":
+  main()
+

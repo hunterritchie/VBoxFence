@@ -1,0 +1,147 @@
+#!/usr/bin/python
+
+import json
+import socket
+import ssl
+import struct
+import time
+
+
+def receive(sock):
+  # read length
+  buflen = struct.calcsize("!L")
+  print "expecting data len of size %d\n" % (buflen)
+  #buflen = 4
+  buf = ""
+  while (len(buf) < buflen):
+    print "read data len"
+    buf = sock.recv(buflen - len(buf))
+  buflen = socket.ntohl(struct.unpack("!L", buf)[0])
+
+  # read data
+  buf = ""
+  while (len(buf) < buflen):
+    print "read data"
+    buf = sock.recv(buflen - len(buf))
+  return buf
+
+
+def sendmsg(sock, msg):
+  # send length
+  print "attempting to send msg: %s\n" % (msg)
+  buflen = socket.htonl(len(msg))
+  print "msg len = %d\n" % (len(msg))
+  buflen = struct.pack("!L", buflen)
+  tmp_unpack = socket.ntohl(struct.unpack("!L", buflen)[0])
+  print "test unpack = %d\n" % (tmp_unpack)
+  try:
+    sock.sendall(buflen)
+  except Exception, e:
+    error = "%s\n" % str(e)
+    print error
+  # send message
+  try:
+    sock.sendall(message)
+    #time.sleep(0.1)
+  except Exception, e:
+    error = "%s\n" % str(e)
+    print error
+
+
+def client_connect(ip, port):
+  try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #time.sleep(0.1)
+    #servercert="/etc/vbox/server.crt"
+    #serverkey="/etc/vbox/server.key"
+    servercert="/home/hunter/projectbox/virtualbox_fencing_tools/server.crt"
+    serverkey="/home/hunter/projectbox/virtualbox_fencing_tools/server.key"
+    ssl_sock = ssl.wrap_socket(sock, do_handshake_on_connect=True, certfile=servercert, keyfile=serverkey, cert_reqs=ssl.CERT_NONE)
+    #time.sleep(0.1)
+    ssl_sock.connect((ip, port))
+    #time.sleep(0.1)
+  except Exception, e:
+    error = "%s\n" % str(e)
+    print error
+
+
+  return ssl_sock
+
+if __name__ == "__main__":
+
+# TODO: setup argparse for taking name of vbox name to test against
+# TODO: setup argparse for taking address/port of fence device
+
+  ip = "127.0.0.1"
+  #ip = "192.168.1.4"
+  port = 6789
+  try:
+    # { "cmd" : "<cmd>", "options" : [ "option1", "option2", ... "optionN" ] }
+    # { "cmd" : "<cmd>", "name" : <name>, "options" : [ "option1", "option2", ... "optionN" ] }
+
+    print "--> check status"
+    sock = client_connect(ip, port)
+    #print sock
+    message = json.dumps({ "cmd":"status" })
+    print "sending %s\n" % (message)
+    sendmsg(sock, message)
+    print "message sent, receive response"
+    buf = receive(sock)
+    print "buf = %s\n" % (buf)
+    response = json.loads(buf)
+    print "%s %s\n" % (response["cmd"], response["action"])
+
+    #print "--> bad command"
+    #sock = client_connect(ip, port)
+    #message = json.dumps({ "cmd":"start", "name":"cbox1" })
+    #sendmsg(sock, message)
+    #buf = receive(sock)
+    #response = json.loads(buf)
+    #print "'%s' command is an %s\n" % (response["cmd"], response["action"])
+#
+    #print "--> stop cbox1"
+    #sock = client_connect(ip, port)
+    #message = json.dumps({ "cmd":"off", "name":"cbox1" })
+    #sendmsg(sock, message)
+    #buf = receive(sock)
+    #response = json.loads(buf)
+    #print "%s %s\n" % (response["cmd"], response["action"])
+#
+    #print "--> start cbox1"
+    #sock = client_connect(ip, port)
+    #message = json.dumps({ "cmd":"on", "name":"cbox1" })
+    #sendmsg(sock, message)
+    #buf = receive(sock)
+    #response = json.loads(buf)
+    #print "%s %s\n" % (response["cmd"], response["action"])
+#
+    #print "--> stop cbox1"
+    #sock = client_connect(ip, port)
+    #message = json.dumps({ "cmd":"off", "name":"cbox1" })
+    #sendmsg(sock, message)
+    #buf = receive(sock)
+    #response = json.loads(buf)
+    #print "%s %s\n" % (response["cmd"], response["action"])
+#
+    #print "--> start cbox1"
+    #sock = client_connect(ip, port)
+    #message = json.dumps({ "cmd":"on", "name":"cbox1" })
+    #sendmsg(sock, message)
+    #buf = receive(sock)
+    #response = json.loads(buf)
+    #print "%s %s\n" % (response["cmd"], response["action"])
+#
+    #print "--> reboot cbox1"
+    #sock = client_connect(ip, port)
+    #message = json.dumps({ "cmd":"reboot", "name":"cbox1" })
+    #sendmsg(sock, message)
+    #buf = receive(sock)
+    #response = json.loads(buf)
+    #print "%s %s\n" % (response["cmd"], response["action"])
+#
+  finally:
+    try:
+      sock.close()
+    except:
+      pass
+

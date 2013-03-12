@@ -1,0 +1,10 @@
+{
+  "address": "127.0.0.1", 
+  "certreq": "Required", 
+  "max_fd": 1024, 
+  "port": 6789, 
+  "servercert": "/etc/vbox/server.crt", 
+  "serverkey": "/etc/vbox/server.key", 
+  "umask": 0, 
+  "working_dir": "/"
+}
