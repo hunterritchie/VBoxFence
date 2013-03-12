@@ -3,8 +3,8 @@
   "certreq": "None", 
   "max_fd": 1024, 
   "port": 6789, 
-  "servercert": "/home/hunter/projectbox/virtualbox_fencing_tools/server.crt", 
-  "serverkey": "/home/hunter/projectbox/virtualbox_fencing_tools/server.key", 
+  "servercert": "/directory/to/server/cert/server.crt", 
+  "serverkey": "/directory/to/server/key/server.key", 
   "umask": 0, 
-  "working_dir": "/home/hunter"
+  "working_dir": "/your/working/dir"
 }
